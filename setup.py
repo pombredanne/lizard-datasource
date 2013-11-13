@@ -1,6 +1,6 @@
 from setuptools import setup
 
-version = '0.2.dev0'
+version = '0.13.dev0'
 
 long_description = '\n\n'.join([
     open('README.rst').read(),
@@ -13,11 +13,14 @@ install_requires = [
     'lizard-map >= 4.0a1',
     'lizard-ui >= 4.0a1',
     'lizard-security',
+    'lizard-fewsjdbc >= 2.28',
     'django-nose',
     'setuptools',
     'mock',
     'south',
     'pandas',
+    'django-colorful',
+    'factory_boy'
     ],
 
 tests_require = [
@@ -25,13 +28,13 @@ tests_require = [
 
 setup(name='lizard-datasource',
       version=version,
-      description="TODO",
+      description="Abstraction layer between data sources",
       long_description=long_description,
       # Get strings from http://www.python.org/pypi?%3Aaction=list_classifiers
       classifiers=[],
       keywords=[],
-      author='TODO',
-      author_email='TODO@nelen-schuurmans.nl',
+      author='Remco Gerlich',
+      author_email='remco.gerlich@nelen-schuurmans.nl',
       url='',
       license='GPL',
       packages=['lizard_datasource'],
@@ -45,7 +48,8 @@ setup(name='lizard-datasource',
           ],
           'lizard_datasource': [
             'dummy_datasource = lizard_datasource.dummy_datasource:factory',
-       'augmented_datasource = lizard_datasource.augmented_datasource:factory',
+            ('augmented_datasource = ' +
+             'lizard_datasource.augmented_datasource:factory'),
             ],
           }
       )

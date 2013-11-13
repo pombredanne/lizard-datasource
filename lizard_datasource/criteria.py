@@ -1,6 +1,10 @@
 """Defines classes for criteria (Criterion class) and options (Option,
 Options, OptionList, OptionTree)."""
 
+# Python 3 is coming to town
+from __future__ import print_function, unicode_literals
+from __future__ import absolute_import, division
+
 
 class Criterion(object):
     TYPE_SELECT = object()
@@ -32,15 +36,15 @@ class Criterion(object):
     def __eq__(self, other):
         return getattr(other, '_identifier', None) == self._identifier
 
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
     def __hash__(self):
         return hash(self._identifier)
 
     def __unicode__(self):
         return "Criterion(identifier={0}, description={1})".format(
             self._identifier, self._description)
+
+    def __repr__(self):
+        return unicode(self)
 
 
 class AppNameCriterion(Criterion):
@@ -52,16 +56,32 @@ class AppNameCriterion(Criterion):
 
 
 class Option(object):
-    """An option has an identifier and a description."""
+    """An option has an identifier and a description. Options are
+    hashable, that is, they can be members of sets and keys of
+    dictionaries."""
     def __init__(self, identifier, description):
         self.identifier = identifier
         self.description = description
 
     def __unicode__(self):
-        return "Option({0}, {1})".format(self.identifier, self.description)
+        return "Option({0}, {1})".format(
+            repr(self.identifier), repr(self.description))
+
+    def __repr__(self):
+        return unicode(self)
+
+    def __eq__(self, other):
+        return getattr(other, 'identifier', None) == self.identifier
+
+    def __hash__(self):
+        return hash(self.identifier)
 
 
 class Options(object):
+    """This is the base class of the various ways to represent a set
+    of options. Options and its subclasses are _immutable_, so that
+    any methods changing the Options should return a new instance."""
+
     @property
     def is_option_list(self):
         return False
@@ -72,9 +92,15 @@ class Options(object):
 
 
 class OptionList(Options):
+    """Represents a simple list of options. An option's identifier can
+    not occur more than once in an optionlist. Iter_options() returns the
+    options in sorted order of the descriptions.
+
+    XXX Rename this class to OptionSet."""
+
     def __init__(self, options):
         """Needs an iterable of Options."""
-        self.options = list(options)
+        self.options = frozenset(options)
 
     @property
     def is_option_list(self):
@@ -90,18 +116,30 @@ class OptionList(Options):
         return bool(self.options)
 
     def iter_options(self):
-        return iter(self.options)
+        return iter(sorted(
+                self.options,
+                key=lambda option: option.description))
 
     def only_option(self):
         if len(self.options) != 1:
             raise ValueError("only_option called when len isn't 1.")
-        return self.options[0]
+
+        (member,) = self.options
+        return member
 
     def add(self, option_list):
         if len(option_list) > 0:
-            return OptionList(self.options + option_list.options)
-        else:
-            return self
+            u = self.options.union(option_list.options)
+            if len(u) != len(self.options):
+                return OptionList(u)
+
+        return self
+
+    def minus(self, option):
+        """Return a new OptionList with all the options, except for
+        this one"""
+        return OptionList(o for o in self.options
+                          if o != option)
 
 
 class OptionTree(Options):
@@ -131,6 +169,9 @@ class OptionTree(Options):
             self.description or "None",
             ", ".join(unicode(c) for c in self.children))
 
+    def __repr__(self):
+        return unicode(self)
+
     def __len__(self):
         if self.is_leaf:
             return 1
@@ -155,6 +196,40 @@ class OptionTree(Options):
             return OptionTree(children=[self, option_tree])
         else:
             return self
+
+    def _recursive_minus(self, option):
+        """Return a copy of the tree, with that option removed. Only
+        called if len(tree) >= 1, so it should never end up entirely
+        empty."""
+        if self.is_leaf:
+            if self.option == option:
+                # Remove this leaf by returning None
+                return None
+            else:
+                # Leaves are immutable so we can just return self
+                return self
+        else:
+            children = [
+                child._recursive_minus(option) for child in self.children]
+            children = [child for child in children if child is not None]
+
+            if children:
+                return OptionTree(
+                    description=self.description, children=children)
+            else:
+                return None
+
+    def minus(self, option):
+        tree = self
+
+        if len(tree) > 0:
+            tree = self._recursive_minus(option)
+
+        if tree is not None and len(tree) > 0:
+            return tree
+        else:
+            # Apparently we removed the last option
+            return EmptyOptions()
 
 
 class EmptyOptions(Options):

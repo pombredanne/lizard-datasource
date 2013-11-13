@@ -1,3 +1,4 @@
+import datetime
 import logging
 import time
 
@@ -9,7 +10,7 @@ from lizard_datasource import properties
 logger = logging.getLogger(__name__)
 
 
-def _yield_layers(ds):
+def _yield_drawable_datasources(ds):
     # This implements a breadth-first search that tries to visit all
     # drawable layers and yields their choices made objects. The case
     # where ChoicesMade is empty functions as the root of the tree.
@@ -23,13 +24,15 @@ def _yield_layers(ds):
             yield ds
         else:
             criteria = ds.chooseable_criteria()
-            logger.debug("Chooseable critera: {0}".format(criteria))
+            print("CHOICES_MADE: {0}".format(choices_made))
             if criteria:
                 criterion = criteria[0]['criterion']
-                options = criteria[0]['values']
-                for option in options:
+                print("CRITERION: {0}".format(criterion))
+                options = criteria[0]['options']
+                for option in options.iter_options():
+                    print("CHOICE: {0}".format(option))
                     choices_mades.append(choices_made.add(
-                            criterion.identifier, option['identifier']))
+                            criterion.identifier, option.identifier))
 
 
 def cache_latest_values(ds):
@@ -45,33 +48,49 @@ def cache_latest_values(ds):
             properties.DATA_CAN_HAVE_VALUE_LAYER_SCRIPT)):
         return  # For now, we don't know what to do in this case
 
-    for layer in _yield_layers(ds):
-        datasource_layer = layer.datasource_layer
-        logger.debug("Before locations")
-        locations = layer.locations()
-        logger.debug("Got locations")
+    # Only actually do something if the script is due.
+    if not ds.activation_for_cache_script():
+        return
+
+    for drawable in _yield_drawable_datasources(ds):
+        # This creates the datasource layer in the database, if it
+        # didn't exist yet
+        datasource_layer = drawable.datasource_layer
+
+        # Cache the datasource layer's unit, if it wasn't filled in yet
+        drawable.cached_unit()
+
+        # If we don't actually use the latest values of this layer, we
+        # should skip it.
+        if not datasource_layer.latest_values_used:
+            continue
+
+        locations = drawable.locations()
         for location in locations:
-            print(
-                "Getting timeseries for location {0}."
-                .format(location['identifier']))
-            timeseries = layer.timeseries(
-                location['identifier'],
-                start_datetime=dates.utc(2012, 11, 1),
-                end_datetime=dates.utc_now())
-            if timeseries is None or len(timeseries) == 0:
-                continue
-            latest = timeseries.tail(1)
             try:
                 cache = models.DatasourceCache.objects.get(
                     datasource_layer=datasource_layer,
-                    locationid=location['identifier'])
+                    locationid=location.identifier)
             except models.DatasourceCache.DoesNotExist:
                 cache = models.DatasourceCache(
                     datasource_layer=datasource_layer,
-                    locationid=location['identifier'])
+                    locationid=location.identifier)
+
+            if cache.timestamp:
+                start_datetime = cache.timestamp
+            else:
+                start_datetime = dates.utc_now() - datetime.timedelta(days=60)
+
+            timeseries = drawable.timeseries(
+                location.identifier,
+                start_datetime=start_datetime,
+                end_datetime=dates.utc_now())
+            if timeseries is None or len(timeseries) == 0:
+                continue
+
+            latest = timeseries.latest()
+
             cache.timestamp = latest.keys()[0]
             cache.value = latest[0]
-            print("Saving value {0} for timestamp {1}.".format(
-                    latest[0], latest.keys()[0]))
             cache.save()
             time.sleep(1)
